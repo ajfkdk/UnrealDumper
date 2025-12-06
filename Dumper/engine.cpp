@@ -306,20 +306,32 @@ struct {
   std::pair<const char*, uint32> names; // NamePoolData signature
   std::pair<const char*, uint32> objects; // ObjObjects signature
   std::function<bool(void*, void*)> callback;
+  // Hardcoded offsets (0 = use signature scan)
+  uint64 gnamesOffset;
+  uint64 gobjectsOffset;
 } engines[] = {
  
     {//DeathlyStillnessGame
         &Default,
         { "\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\xC6\x05\x00\x00\x00\x00\x00\x0F\x10\x03\x4C\x8D\x44\x24\x00\x48\x8B\xC8\x48\x8D\x54\x24\x00", 36 }, //GName
         { "\x48\x8B\x05\x00\x00\x00\x00\x48\x8B\x0C\xC8\x48\x8D\x04\xD1\xEB", 17 }, //Gobject 
-            nullptr
+        nullptr,
+        0, 0 // Use signature scan
+    },
+    {//Strinova
+        &Default,
+        { nullptr, 0 }, // Not used (hardcoded offset)
+        { nullptr, 0 }, // Not used (hardcoded offset)
+        nullptr,
+        0x71BF300, // GNames offset (NamePoolData at 0x1471BF300)
+        0x71D8850  // GObjects offset (ObjObjects at 0x1471D8850)
     }
 };
 
 std::unordered_map<std::string, decltype(&engines[0])> games = {
   {"DeathlyStillnessGame-Win64-Shipping", &engines[0]},
   {"SCUM", &engines[0]},
-  {"Strinova-Win64-Shipping", &engines[0]}
+  {"Strinova-Win64-Shipping", &engines[1]}
 };
 
 STATUS EngineInit(std::string game, void* image) {
@@ -329,6 +341,14 @@ STATUS EngineInit(std::string game, void* image) {
 
   auto engine = it->second;
   offsets = *(Offsets*)(engine->offsets);
+
+  // Check if hardcoded offsets are provided
+  if (engine->gnamesOffset && engine->gobjectsOffset) {
+    fmt::print("Using hardcoded offsets for this game:\n");
+    fmt::print("  GNames:   0x{:X}\n", engine->gnamesOffset);
+    fmt::print("  GObjects: 0x{:X}\n", engine->gobjectsOffset);
+    return EngineInitWithOffsets(engine->gnamesOffset, engine->gobjectsOffset);
+  }
 
   void* names = nullptr; 
   void* objects = nullptr;
