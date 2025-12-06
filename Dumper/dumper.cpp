@@ -15,7 +15,12 @@ STATUS Dumper::Init(int argc, char *argv[]) {
     auto arg = argv[i];
     uint16 arg16 = *(uint16*)arg;
     if (arg16 == 'h-') {
-      printf("'-p' - dump only names and objects\n'-w' - wait for input (it gives me time to inject mods)\n'-f packageNameHere' - specifies package where we should look for pointers in paddings (can take a lot of time)");
+      printf("'-p' - dump only names and objects\n"
+             "'-w' - wait for input (it gives me time to inject mods)\n"
+             "'-f packageNameHere' - specifies package where we should look for pointers in paddings (can take a lot of time)\n"
+             "'-gn 0x1234' - GNames offset (hex)\n"
+             "'-go 0x1234' - GObjects offset (hex)\n"
+             "'--spacing' - add spacing in output");
       return STATUS::FAILED;
     } else if (arg16 == 'p-') {
       Full = false;
@@ -24,6 +29,16 @@ STATUS Dumper::Init(int argc, char *argv[]) {
     } else if (arg16 == 'f-') {
       i++;
       if (i < argc) {  PackageName = argv[i]; }
+      else { return STATUS::FAILED; }
+    }
+    else if (!strcmp(arg, "-gn")) {
+      i++;
+      if (i < argc) { GNamesOffset = strtoull(argv[i], nullptr, 16); }
+      else { return STATUS::FAILED; }
+    }
+    else if (!strcmp(arg, "-go")) {
+      i++;
+      if (i < argc) { GObjectsOffset = strtoull(argv[i], nullptr, 16); }
       else { return STATUS::FAILED; }
     }
     else if (!strcmp(arg, "--spacing")) {
@@ -71,6 +86,12 @@ STATUS Dumper::Init(int argc, char *argv[]) {
     uint64 size = GetImageSize();
     if (!size) { return STATUS::MODULE_NOT_FOUND; }
     
+    // If manual offsets are provided, use them directly
+    if (GNamesOffset && GObjectsOffset) {
+      return EngineInitWithOffsets(GNamesOffset, GObjectsOffset);
+    }
+    
+    // Otherwise, use signature scan (requires reading image)
     Image = VirtualAlloc(0, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
     if (!Read((void*)Base, Image, size)) {
       return STATUS::CANNOT_READ;

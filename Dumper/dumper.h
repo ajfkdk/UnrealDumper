@@ -12,6 +12,10 @@ protected:
   fs::path Directory;
   const char* PackageName = nullptr;
   void* Image = nullptr;
+  
+  // Manual offsets (0 means use signature scan)
+  uint64 GNamesOffset = 0;
+  uint64 GObjectsOffset = 0;
  
 
 private:

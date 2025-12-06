@@ -72,3 +72,4 @@ extern ansi_fn Decrypt_ANSI;
 // extern wide_fn Decrypt_WIDE;
 
 STATUS EngineInit(std::string game, void* image);
+STATUS EngineInitWithOffsets(uint64 gnamesOffset, uint64 gobjectsOffset);

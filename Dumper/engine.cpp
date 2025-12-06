@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <fmt/core.h>
 #include "engine.h"
 #include "generic.h"
 #include "memory.h"
@@ -363,5 +364,73 @@ STATUS EngineInit(std::string game, void* image) {
     return STATUS::ENGINE_FAILED;
   }
 
+  return STATUS::SUCCESS;
+}
+
+STATUS EngineInitWithOffsets(uint64 gnamesOffset, uint64 gobjectsOffset) {
+  // Use default offsets
+  offsets = *(Offsets*)(&Default);
+
+  // Calculate actual addresses from base + offset
+  void* names = (void*)(Base + gnamesOffset);
+  void* objects = (void*)(Base + gobjectsOffset);
+
+  fmt::print("Using manual offsets:\n");
+  fmt::print("  GNames:   Base + 0x{:X} = 0x{:X}\n", gnamesOffset, (uint64)names);
+  fmt::print("  GObjects: Base + 0x{:X} = 0x{:X}\n", gobjectsOffset, (uint64)objects);
+
+  // Validate GNames
+  fmt::print("Validating GNames...\n");
+  NamePoolData = Read<decltype(NamePoolData)>(names);
+  
+  // Check if NamePoolData looks valid
+  if (NamePoolData.CurrentBlock > 8192 || NamePoolData.CurrentByteCursor == 0) {
+    fmt::print("Error: GNames offset is invalid!\n");
+    fmt::print("  CurrentBlock: {} (should be < 8192)\n", NamePoolData.CurrentBlock);
+    fmt::print("  CurrentByteCursor: {} (should be > 0)\n", NamePoolData.CurrentByteCursor);
+    return STATUS::ENGINE_FAILED;
+  }
+
+  auto entry = UE_FNameEntry(NamePoolData.GetEntry(0));
+
+  try {
+    auto str = entry.String();
+    if (str.empty() || *(uint32*)str.data() != 'enoN') {
+      fmt::print("Error: GNames offset is invalid! First name entry is not 'None', got: '{}'\n", str);
+      return STATUS::ENGINE_FAILED;
+    }
+  }
+  catch (...) {
+    fmt::print("Error: GNames offset is invalid! Failed to read first name entry.\n");
+    return STATUS::ENGINE_FAILED;
+  }
+  fmt::print("  GNames validated OK (first entry = 'None')\n");
+
+  // Validate GObjects
+  fmt::print("Validating GObjects...\n");
+  ObjObjects = Read<decltype(ObjObjects)>(objects);
+  
+  // Check if ObjObjects looks valid
+  if (ObjObjects.NumElements == 0 || ObjObjects.NumElements > 10000000) {
+    fmt::print("Error: GObjects offset is invalid!\n");
+    fmt::print("  NumElements: {} (should be > 0 and < 10000000)\n", ObjObjects.NumElements);
+    return STATUS::ENGINE_FAILED;
+  }
+  
+  if (ObjObjects.Objects == nullptr) {
+    fmt::print("Error: GObjects offset is invalid! Objects pointer is null.\n");
+    return STATUS::ENGINE_FAILED;
+  }
+
+  // Try to read first object
+  auto firstObj = ObjObjects.GetObjectPtr(0);
+  if (firstObj == nullptr) {
+    fmt::print("Error: GObjects offset is invalid! Cannot read first object.\n");
+    return STATUS::ENGINE_FAILED;
+  }
+  
+  fmt::print("  GObjects validated OK (NumElements = {})\n", ObjObjects.NumElements);
+
+  fmt::print("All offsets validated successfully!\n");
   return STATUS::SUCCESS;
 }
