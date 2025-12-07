@@ -1087,6 +1087,38 @@ void UE_UPackage::GenerateFunction(UE_UFunction fn, Function *out) {
 void UE_UPackage::GenerateStruct(UE_UStruct object, std::vector<Struct>& arr, bool findPointers) {
   Struct s;
   s.Size = object.GetSize();
+  
+  // Debug: Check why Size is 0
+  static int debugCount = 0;
+  if (s.Size == 0 && debugCount < 3) {
+    auto fullName = object.GetFullName();
+    // Only debug core classes
+    if (fullName.find("CoreUObject.Object") != std::string::npos ||
+        fullName.find("Engine.Actor") != std::string::npos) {
+      fmt::print("\n[DEBUG] GenerateStruct: Size is 0 for '{}'\n", fullName);
+      fmt::print("  Object address: 0x{:X}\n", (uint64)object.GetAddress());
+      fmt::print("  PropertiesSize offset: 0x{:X}\n", offsets.UStruct.PropertiesSize);
+      
+      // Dump raw memory to find the correct offset
+      fmt::print("  Raw memory dump (0x28 - 0xA0):\n");
+      for (uint16 off = 0x28; off <= 0xA0; off += 8) {
+        uint64 val = Read<uint64>((uint8*)object.GetAddress() + off);
+        fmt::print("    +0x{:02X}: 0x{:016X}\n", off, val);
+      }
+      
+      // Try reading as int32 at common offsets
+      fmt::print("  Possible PropertiesSize values:\n");
+      for (uint16 off = 0x40; off <= 0x90; off += 4) {
+        int32 val = Read<int32>((uint8*)object.GetAddress() + off);
+        // UObject size is 0x28, Actor is around 0x220, etc.
+        if (val >= 0x20 && val < 0x10000) {
+          fmt::print("    Offset 0x{:02X}: {} (0x{:X})\n", off, val, val);
+        }
+      }
+      debugCount++;
+    }
+  }
+  
   if (s.Size == 0) {
     return;
   }
@@ -1276,13 +1308,39 @@ void UE_UPackage::SaveEnum(std::vector<Enum> &arr, FILE *file) {
 
 void UE_UPackage::Process() {
   auto &objects = Package->second;
+  
+  // Debug: count objects by type
+  static bool debugOnce = true;
+  int classCount = 0, structCount = 0, enumCount = 0, funcCount = 0, otherCount = 0;
+  
   for (auto &object : objects) {
     if (object.IsA<UE_UClass>()) {
       GenerateStruct(object.Cast<UE_UStruct>(), Classes, FindPointers);
+      classCount++;
     } else if (object.IsA<UE_UScriptStruct>()) {
       GenerateStruct(object.Cast<UE_UStruct>(), Structures, false);
+      structCount++;
     } else if (object.IsA<UE_UEnum>()) {
       GenerateEnum(object.Cast<UE_UEnum>(), Enums);
+      enumCount++;
+    } else if (object.IsA<UE_UFunction>()) {
+      funcCount++;
+    } else {
+      otherCount++;
+    }
+  }
+  
+  // Debug output for Engine package
+  if (debugOnce) {
+    auto pkgName = UE_UObject(Package->first).GetName();
+    if (pkgName == "Engine" || pkgName == "CoreUObject") {
+      fmt::print("\n[DEBUG] Package '{}': {} classes, {} structs, {} enums, {} functions, {} other\n",
+        pkgName, classCount, structCount, enumCount, funcCount, otherCount);
+      fmt::print("  Classes vector size after Process: {}\n", Classes.size());
+      if (classCount > 0 && Classes.size() == 0) {
+        fmt::print("  WARNING: Classes were found but not added to vector!\n");
+      }
+      if (pkgName == "CoreUObject") debugOnce = false;
     }
   }
 }

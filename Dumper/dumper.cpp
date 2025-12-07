@@ -102,6 +102,78 @@ STATUS Dumper::Init(int argc, char *argv[]) {
 }
 
 STATUS Dumper::Dump() {
+  // Debug: Check if critical StaticClass objects are found
+  fmt::print("\nDebug: Checking StaticClass objects...\n");
+  auto classClass = UE_UClass::StaticClass();
+  auto structClass = UE_UStruct::StaticClass();
+  auto scriptStructClass = UE_UScriptStruct::StaticClass();
+  auto enumClass = UE_UEnum::StaticClass();
+  auto functionClass = UE_UFunction::StaticClass();
+  auto objectClass = UE_UObject::StaticClass();
+  
+  fmt::print("  UE_UObject::StaticClass() = {}\n", objectClass ? "OK" : "NULL");
+  fmt::print("  UE_UClass::StaticClass() = {}\n", classClass ? "OK" : "NULL");
+  fmt::print("  UE_UStruct::StaticClass() = {}\n", structClass ? "OK" : "NULL");
+  fmt::print("  UE_UScriptStruct::StaticClass() = {}\n", scriptStructClass ? "OK" : "NULL");
+  fmt::print("  UE_UEnum::StaticClass() = {}\n", enumClass ? "OK" : "NULL");
+  fmt::print("  UE_UFunction::StaticClass() = {}\n", functionClass ? "OK" : "NULL");
+  
+  if (!classClass) {
+    fmt::print("\nWARNING: UE_UClass::StaticClass() is NULL!\n");
+    fmt::print("  This means 'Class CoreUObject.Class' was not found in GObjects.\n");
+    fmt::print("  Searching for similar objects...\n");
+    
+    // Try to find any object with "Class" in the name
+    int found = 0;
+    ObjObjects.Dump([&found](uint8* obj) {
+      UE_UObject object(obj);
+      auto name = object.GetFullName();
+      if (name.find("CoreUObject.Class") != std::string::npos || 
+          name.find("Class CoreUObject") != std::string::npos) {
+        fmt::print("  Found: {}\n", name);
+        found++;
+        if (found >= 10) return; // Limit output
+      }
+    });
+    if (found == 0) {
+      fmt::print("  No matching objects found. GNames may have issues.\n");
+    }
+  } else {
+    // Debug: Test IsA on a known Class object
+    fmt::print("\nDebug: Testing IsA functionality...\n");
+    fmt::print("  classClass address: 0x{:X}\n", (uint64)classClass.GetAddress());
+    fmt::print("  classClass name: {}\n", classClass.GetFullName());
+    
+    // Check if classClass itself is a UClass
+    auto classOfClass = classClass.GetClass();
+    fmt::print("  classClass.GetClass() address: 0x{:X}\n", (uint64)classOfClass.GetAddress());
+    fmt::print("  classClass.GetClass() name: {}\n", classOfClass.GetFullName());
+    
+    // Test IsA
+    bool isClass = classClass.IsA<UE_UClass>();
+    fmt::print("  classClass.IsA<UE_UClass>() = {}\n", isClass ? "true" : "false");
+    
+    // Find a real game class and test it
+    fmt::print("\n  Looking for a game class to test...\n");
+    int testCount = 0;
+    ObjObjects.Dump([&testCount, &classClass](uint8* obj) {
+      if (testCount >= 5) return;
+      UE_UObject object(obj);
+      auto name = object.GetFullName();
+      // Look for something that should be a Class
+      if (name.find("Class Engine.Actor") != std::string::npos ||
+          name.find("Class Engine.Pawn") != std::string::npos ||
+          name.find("Class Engine.Character") != std::string::npos) {
+        fmt::print("    Testing: {}\n", name);
+        fmt::print("      GetClass() = {}\n", object.GetClass().GetFullName());
+        fmt::print("      IsA<UE_UClass>() = {}\n", object.IsA<UE_UClass>() ? "true" : "false");
+        fmt::print("      IsA<UE_UStruct>() = {}\n", object.IsA<UE_UStruct>() ? "true" : "false");
+        testCount++;
+      }
+    });
+  }
+  fmt::print("\n");
+
   /*
    * Names dumping.
    * We go through each block, except last, that is not fully filled.

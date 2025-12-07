@@ -318,7 +318,7 @@ struct {
         nullptr,
         0, 0 // Use signature scan
     },
-    {//Strinova
+    {//Strinova - Custom offsets for this game
         &Default,
         { nullptr, 0 }, // Not used (hardcoded offset)
         { nullptr, 0 }, // Not used (hardcoded offset)
@@ -347,6 +347,14 @@ STATUS EngineInit(std::string game, void* image) {
     fmt::print("Using hardcoded offsets for this game:\n");
     fmt::print("  GNames:   0x{:X}\n", engine->gnamesOffset);
     fmt::print("  GObjects: 0x{:X}\n", engine->gobjectsOffset);
+    
+    // Apply game-specific offset fixes
+    if (game == "Strinova-Win64-Shipping") {
+      // Strinova uses different UStruct layout
+      offsets.UStruct.PropertiesSize = 0x80;  // Default is 0x58
+      fmt::print("  Applied Strinova-specific fixes: UStruct.PropertiesSize = 0x80\n");
+    }
+    
     return EngineInitWithOffsets(engine->gnamesOffset, engine->gobjectsOffset);
   }
 
@@ -403,6 +411,41 @@ STATUS EngineInitWithOffsets(uint64 gnamesOffset, uint64 gobjectsOffset) {
   fmt::print("Validating GNames...\n");
   NamePoolData = Read<decltype(NamePoolData)>(names);
   
+  // Debug: Print raw memory at GNames address
+  fmt::print("  Raw memory at GNames address:\n");
+  uint8 rawData[128];
+  Read(names, rawData, 128);
+  for (int row = 0; row < 8; row++) {
+    fmt::print("    +0x{:02X}: ", row * 16);
+    for (int col = 0; col < 16; col++) {
+      fmt::print("{:02X} ", rawData[row * 16 + col]);
+    }
+    fmt::print("\n");
+  }
+  
+  // Try to find valid Blocks pointer by scanning
+  fmt::print("  Scanning for valid Blocks pointer...\n");
+  uint64* ptrScan = (uint64*)rawData;
+  for (int i = 0; i < 16; i++) {
+    uint64 val = ptrScan[i];
+    // Check if it looks like a valid pointer (in reasonable memory range)
+    if (val > 0x10000 && val < 0x7FFFFFFFFFFF) {
+      fmt::print("    Offset +0x{:02X}: 0x{:X} (possible pointer)\n", i * 8, val);
+    }
+  }
+  
+  fmt::print("  FNamePool Debug Info:\n");
+  fmt::print("    Lock[0-7]: ");
+  for (int i = 0; i < 8; i++) {
+    fmt::print("{:02X} ", NamePoolData.Lock[i]);
+  }
+  fmt::print("\n");
+  fmt::print("    CurrentBlock: {} (0x{:X})\n", NamePoolData.CurrentBlock, NamePoolData.CurrentBlock);
+  fmt::print("    CurrentByteCursor: {} (0x{:X})\n", NamePoolData.CurrentByteCursor, NamePoolData.CurrentByteCursor);
+  fmt::print("    Blocks[0]: 0x{:X}\n", (uint64)NamePoolData.Blocks[0]);
+  fmt::print("    Blocks[1]: 0x{:X}\n", (uint64)NamePoolData.Blocks[1]);
+  fmt::print("    Blocks[2]: 0x{:X}\n", (uint64)NamePoolData.Blocks[2]);
+  
   // Check if NamePoolData looks valid
   if (NamePoolData.CurrentBlock > 8192 || NamePoolData.CurrentByteCursor == 0) {
     fmt::print("Error: GNames offset is invalid!\n");
@@ -410,11 +453,22 @@ STATUS EngineInitWithOffsets(uint64 gnamesOffset, uint64 gobjectsOffset) {
     fmt::print("  CurrentByteCursor: {} (should be > 0)\n", NamePoolData.CurrentByteCursor);
     return STATUS::ENGINE_FAILED;
   }
+  
+  // Check if Blocks[0] is valid
+  if (NamePoolData.Blocks[0] == nullptr) {
+    fmt::print("Error: GNames Blocks[0] is null! The FNamePool structure offset may be wrong.\n");
+    fmt::print("  Try checking if there's an offset before the Blocks array.\n");
+    return STATUS::ENGINE_FAILED;
+  }
 
   auto entry = UE_FNameEntry(NamePoolData.GetEntry(0));
+  fmt::print("  Entry[0] address: 0x{:X}\n", (uint64)NamePoolData.GetEntry(0));
 
   try {
+    auto [wide, len] = entry.Info();
+    fmt::print("  Entry[0] info: wide={}, len={}\n", wide, len);
     auto str = entry.String();
+    fmt::print("  Entry[0] string: '{}'\n", str);
     if (str.empty() || *(uint32*)str.data() != 'enoN') {
       fmt::print("Error: GNames offset is invalid! First name entry is not 'None', got: '{}'\n", str);
       return STATUS::ENGINE_FAILED;
